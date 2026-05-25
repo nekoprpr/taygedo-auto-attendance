@@ -142,6 +142,7 @@ account_name=小号
 | `GH_SECRET_UPDATE_TOKEN` | 用于写回 `TAYGEDO_ACCOUNTS` 的 GitHub PAT | 必填 |
 | `TAYGEDO_ACCOUNTS` | 塔吉多账号 JSON，推荐用登录工作流自动生成 | 登录后自动生成 |
 | `TAYGEDO_NOTIFICATION_URLS` | 通知 URL，多个 URL 用英文逗号分隔 | 可选 |
+| `TAYGEDO_SERVERCHAN_SENDKEY` | Server 酱 SendKey，配置后会推送签到结果 | 可选 |
 | `TAYGEDO_MAX_RETRIES` | 单账号最大重试次数，默认 `3` | 可选 |
 
 ## TAYGEDO_ACCOUNTS 格式
@@ -226,9 +227,12 @@ account_name=小号
 
 ```text
 TAYGEDO_NOTIFICATION_URLS=https://example.com/webhook
+TAYGEDO_SERVERCHAN_SENDKEY=SCTxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-多个地址用英文逗号分隔。
+`TAYGEDO_SERVERCHAN_SENDKEY` 填 Server 酱的 SendKey 即可，不需要填写完整 URL。程序会自动请求 `https://sctapi.ftqq.com/<SENDKEY>.send`，并按 Server 酱要求发送 `title` 和 `desp` 表单字段。
+
+`TAYGEDO_NOTIFICATION_URLS` 用于普通 webhook，多个地址用英文逗号分隔。两个配置可以同时使用，签到完成后会分别推送。
 
 ## 本地运行
 

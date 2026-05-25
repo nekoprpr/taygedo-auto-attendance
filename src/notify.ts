@@ -8,15 +8,43 @@ export interface NotificationPayload {
 export async function sendNotification(payload: NotificationPayload): Promise<void> {
   const fetchImpl = payload.fetch ?? fetch
   for (const url of payload.urls) {
-    await fetchImpl(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        title: payload.title,
-        content: payload.content,
-      }),
-    })
+    if (isServerChanUrl(url)) {
+      await fetchImpl(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        },
+        body: new URLSearchParams({
+          title: payload.title,
+          desp: payload.content,
+        }).toString(),
+      })
+      continue
+    }
+
+    await fetchImpl(url, createJsonRequest(payload))
+  }
+}
+
+function isServerChanUrl(url: string): boolean {
+  try {
+    const parsedUrl = new URL(url)
+    return parsedUrl.hostname === 'sctapi.ftqq.com' && parsedUrl.pathname.endsWith('.send')
+  }
+  catch {
+    return false
+  }
+}
+
+function createJsonRequest(payload: NotificationPayload): RequestInit {
+  return {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      title: payload.title,
+      content: payload.content,
+    }),
   }
 }
