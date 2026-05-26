@@ -11,6 +11,7 @@
 - 支持 Cloudflare Workers 定时任务、HTTP 手动触发、Web 登录页和 KV 存储
 - 支持 Docker / Docker Compose 和本地 CLI
 - 支持短信验证码登录、账号密码登录
+- 支持 APP 签到、游戏签到和塔吉多金币任务
 - 支持普通 webhook 和 Server 酱通知
 
 ## 快速开始
@@ -90,6 +91,8 @@ curl -H "Authorization: Bearer <TAYGEDO_ADMIN_TOKEN>" "https://你的-worker.wor
 
 进入 Fork 后的仓库，打开 **Actions**。如果 GitHub 提示启用 workflow，点击确认启用。
 
+![Fork 并启用 Actions](docs/images/github-setup.svg)
+
 #### 3. 创建 GitHub PAT
 
 这个 token 用来让 workflow 自动更新账号 Secret。
@@ -110,6 +113,8 @@ Settings -> Secrets and variables -> Actions -> New repository secret
 ```
 
 添加：
+
+![添加 GitHub Secrets](docs/images/github-secrets.svg)
 
 | Secret 名称 | 说明 | 是否必填 |
 | --- | --- | --- |
@@ -141,6 +146,8 @@ account_name=主账号
 #### 6. 执行签到
 
 进入 **Actions** -> **塔吉多签到** -> **Run workflow**。如果需要忽略今日去重并补跑，把 `force_run` 设为 `true`。
+
+![运行 workflow](docs/images/github-run-workflow.svg)
 
 看到类似下面的日志就说明部署完成：
 
@@ -175,6 +182,7 @@ TAYGEDO_NOTIFICATION_URLS=
 TAYGEDO_SERVERCHAN_SENDKEY=
 TAYGEDO_MAX_RETRIES=3
 TAYGEDO_FORCE_RUN=false
+TAYGEDO_LOOP_SECONDS=
 ```
 
 生成账号文件：
@@ -200,6 +208,14 @@ docker compose run --rm taygedo-attendance
 ```bash
 TAYGEDO_FORCE_RUN=true docker compose run --rm taygedo-attendance
 ```
+
+常驻循环模式：
+
+```bash
+TAYGEDO_LOOP_SECONDS=86400 docker compose up -d
+```
+
+设置后容器启动会立即执行一次，然后按秒循环。默认留空仍是一次性任务。
 
 本地构建镜像：
 
@@ -243,6 +259,13 @@ TAYGEDO_LOGIN_PASSWORD=your-password pnpm local login \
 TAYGEDO_CREDENTIAL_KEY_PATH=data/credential-key pnpm local attendance \
   --accounts-file data/accounts.json \
   --state-dir data/state
+```
+
+打印或生成设备指纹：
+
+```bash
+pnpm local device --accounts-file data/accounts.json --print
+pnpm local device --accounts-file data/accounts.json --account-id main --force
 ```
 
 </details>
@@ -306,11 +329,13 @@ account_name=主账号
     "name": "主账号",
     "uid": "123456",
     "deviceId": "abcdef1234567890",
+    "openudid": "00000000-0000-0000-0000-000000000000",
+    "vendorid": "11111111-1111-1111-1111-111111111111",
     "accessToken": "your-access-token",
     "refreshToken": "your-refresh-token",
     "laohuToken": "your-laohu-token",
     "laohuUserId": "your-laohu-user-id",
-    "tokenUpdatedAt": "2026-05-07T00:00:00.000Z",
+    "tokenUpdatedAt": "2026-05-07T08:00:00+08:00",
     "phone": "13800138000",
     "encryptedPassword": {
       "v": 1,
@@ -324,6 +349,17 @@ account_name=主账号
 ```
 
 账号 JSON 不保存明文密码。`encryptedPassword` 是加密后的密码，必须配合 `TAYGEDO_CREDENTIAL_KEY` 或本地密钥文件才能解密。旧配置中如果存在 `password` / `passwordUpdatedAt`，程序读取后会丢弃，后续写回会自然清理。
+
+`deviceId`、`openudid`、`vendorid` 会在登录或 `pnpm local device` 时生成。默认复用已有设备字段；登录 CLI 可加 `--new-device`，Cloudflare 登录页可勾选“生成新设备”。
+
+### 金币任务
+
+每日签到默认会执行金币任务：BBS 签到、浏览帖子、点赞未点赞帖子、分享帖子，并读取今日金币状态。可配置：
+
+| 配置 | 说明 |
+| --- | --- |
+| `TAYGEDO_COIN_TASKS` | 是否执行金币任务，默认 `true`，设为 `false` 可关闭 |
+| `TAYGEDO_SHARE_PLATFORM` | 分享平台，默认 `qq`，可填 `wechat`、`timeline`、`wb` |
 
 ### 多账号
 
@@ -356,15 +392,21 @@ TAYGEDO_SERVERCHAN_SENDKEY=SCTxxxxxxxxxxxxxxxxxxxxxxxx
 
 | 配置 | 说明 |
 | --- | --- |
-| `TAYGEDO_ACCOUNT_STORE` | 账号存储，支持 `env`、`file`、`cloudflare-kv`、`upstash` |
-| `TAYGEDO_STATE_STORE` | 状态存储，支持 `memory`、`file`、`cloudflare-kv`、`upstash` |
+| `TAYGEDO_ACCOUNT_STORE` | 账号存储，支持 `env`、`file`、`cloudflare-kv`、`upstash`、`unstorage` |
+| `TAYGEDO_STATE_STORE` | 状态存储，支持 `memory`、`file`、`cloudflare-kv`、`upstash`、`unstorage` |
 | `TAYGEDO_ACCOUNTS_KEY` | 账号存储 key，默认 `TAYGEDO_ACCOUNTS` |
 | `TAYGEDO_STATE_PREFIX` | 状态存储前缀，默认 `taygedo` |
 | `TAYGEDO_FORCE_RUN` | 忽略今日去重强制重跑，支持 `true` / `1` |
+| `TAYGEDO_LOOP_SECONDS` | Docker / 本地 CLI 常驻循环间隔秒数，留空表示执行一次 |
 | `TAYGEDO_UPSTASH_REDIS_REST_URL` | Upstash REST URL |
 | `TAYGEDO_UPSTASH_REDIS_REST_TOKEN` | Upstash REST Token |
+| `REDIS_URL` / `KV_URL` | `unstorage` 后端自动选择普通 Redis |
+| `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_BUCKET` | `unstorage` 后端自动选择 S3 |
+| `S3_REGION` / `S3_ENDPOINT` | S3 可选区域和 endpoint |
 
 Cloudflare Workers 默认使用 KV；Docker 和本地 CLI 默认使用文件存储。
+
+`TAYGEDO_ACCOUNT_STORE=unstorage` 或 `TAYGEDO_STATE_STORE=unstorage` 时，程序按优先级自动选择：Redis、S3、Upstash、本地 `.data/kv`。
 
 ### 失败排查
 
