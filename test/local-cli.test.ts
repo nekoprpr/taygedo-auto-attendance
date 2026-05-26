@@ -7,6 +7,7 @@ describe('runLocalCli', () => {
       runAttendance: vi.fn().mockResolvedValue({ summary: 'ok' }),
       runLogin: vi.fn(),
       sendLoginCode: vi.fn(),
+      updateDevices: vi.fn(),
     }
 
     await runLocalCli(['attendance', '--accounts-file', 'accounts.json'], { service })
@@ -21,6 +22,7 @@ describe('runLocalCli', () => {
       runAttendance: vi.fn().mockResolvedValue({ summary: 'ok' }),
       runLogin: vi.fn(),
       sendLoginCode: vi.fn(),
+      updateDevices: vi.fn(),
     }
 
     await runLocalCli(['attendance', '--accounts-file', 'accounts.json', '--force'], { service })
@@ -36,6 +38,7 @@ describe('runLocalCli', () => {
       runAttendance: vi.fn(),
       runLogin: vi.fn().mockResolvedValue(undefined),
       sendLoginCode: vi.fn(),
+      updateDevices: vi.fn(),
     }
 
     await runLocalCli([
@@ -68,6 +71,7 @@ describe('runLocalCli', () => {
       runAttendance: vi.fn(),
       runLogin: vi.fn().mockResolvedValue(undefined),
       sendLoginCode: vi.fn(),
+      updateDevices: vi.fn(),
     }
 
     try {
@@ -102,6 +106,7 @@ describe('runLocalCli', () => {
       runAttendance: vi.fn(),
       runLogin: vi.fn().mockResolvedValue(undefined),
       sendLoginCode: vi.fn(),
+      updateDevices: vi.fn(),
     }
 
     await runLocalCli([
@@ -123,5 +128,59 @@ describe('runLocalCli', () => {
     expect(service.runLogin).toHaveBeenCalledWith(expect.objectContaining({
       credentialKeyPath: 'data/credential-key',
     }))
+  })
+
+  it('passes the new-device flag to login', async () => {
+    const service = {
+      runAttendance: vi.fn(),
+      runLogin: vi.fn().mockResolvedValue(undefined),
+      sendLoginCode: vi.fn(),
+      updateDevices: vi.fn(),
+    }
+
+    await runLocalCli([
+      'login',
+      '--mode',
+      'password',
+      '--phone',
+      '13800138000',
+      '--password',
+      'secret-password',
+      '--account-id',
+      'main',
+      '--accounts-file',
+      'accounts.json',
+      '--new-device',
+    ], { service })
+
+    expect(service.runLogin).toHaveBeenCalledWith(expect.objectContaining({
+      newDevice: true,
+    }))
+  })
+
+  it('runs the device command for selected accounts', async () => {
+    const service = {
+      runAttendance: vi.fn(),
+      runLogin: vi.fn(),
+      sendLoginCode: vi.fn(),
+      updateDevices: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runLocalCli([
+      'device',
+      '--accounts-file',
+      'accounts.json',
+      '--account-id',
+      'main',
+      '--force',
+      '--print',
+    ], { service })
+
+    expect(service.updateDevices).toHaveBeenCalledWith({
+      accountsFile: 'accounts.json',
+      accountId: 'main',
+      force: true,
+      print: true,
+    })
   })
 })

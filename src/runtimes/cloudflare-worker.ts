@@ -211,6 +211,7 @@ function renderManagementPage(): string {
           <label><span>账号 ID</span><input id="account-id" name="accountId" value="main"></label>
           <label><span>账号名称</span><input id="account-name" name="accountName" value="主账号"></label>
           <label><span>设备 ID</span><input id="device-id" name="deviceId" placeholder="留空自动生成"></label>
+          <label><span>生成新设备</span><input id="new-device" name="newDevice" type="checkbox"></label>
         </div>
         <div class="toolbar">
           <button id="submit" type="submit">提交登录</button>
@@ -244,6 +245,7 @@ function renderManagementPage(): string {
         accountId: String(data.get('accountId') || 'main').trim() || 'main',
         accountName: String(data.get('accountName') || '').trim() || '主账号',
         deviceId: String(data.get('deviceId') || '').trim() || undefined,
+        newDevice: data.get('newDevice') === 'on',
       }
       const password = String(data.get('password') || '')
       const captcha = String(data.get('captcha') || '').trim()
@@ -305,6 +307,8 @@ async function runCloudflareAttendance(env: CloudflareEnv, forceRun?: boolean) {
     notificationUrls: config.notificationUrls,
     maxRetries: config.maxRetries,
     forceRun: forceRun ?? config.forceRun,
+    coinTasks: config.coinTasks,
+    sharePlatform: config.sharePlatform,
   })
   return await service.run()
 }
@@ -329,6 +333,7 @@ async function runCloudflareLogin(request: Request, env: CloudflareEnv) {
     password: body.password,
     captcha: body.captcha,
     deviceId: body.deviceId,
+    newDevice: body.newDevice,
     accountId: body.accountId ?? 'main',
     accountName: body.accountName ?? body.accountId ?? '主账号',
     accountsFile: undefined,
@@ -354,6 +359,7 @@ interface LoginRequestBody {
   password?: string
   captcha?: string
   deviceId?: string
+  newDevice?: boolean
   accountId?: string
   accountName?: string
 }

@@ -12,6 +12,8 @@ export interface AttendanceServiceOptions {
   notificationUrls?: string[]
   maxRetries?: number
   forceRun?: boolean
+  coinTasks?: boolean
+  sharePlatform?: string
 }
 
 export class AttendanceService {
@@ -28,6 +30,8 @@ export class AttendanceService {
       maxRetries: this.options.maxRetries,
       stateStore: this.options.stateStore,
       forceRun: this.options.forceRun,
+      coinTasks: this.options.coinTasks,
+      sharePlatform: this.options.sharePlatform,
       secretWriter: payload => this.options.accountStore.writeAccounts(payload),
     })
     return result

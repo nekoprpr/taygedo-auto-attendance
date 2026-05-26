@@ -129,6 +129,27 @@ describe('cloudflare worker runtime', () => {
     expect(html).toContain('塔吉多登录')
     expect(html).toContain('password')
     expect(html).toContain('send-code')
+    expect(html).toContain('生成新设备')
+  })
+
+  it('passes the new-device flag from Cloudflare login requests', async () => {
+    const kv = new Map<string, string>()
+    const env = createEnv(kv, { TAYGEDO_ADMIN_TOKEN: 'secret', TAYGEDO_CREDENTIAL_KEY: 'test-credential-key' })
+
+    const response = await worker.fetch(new Request('https://example.com/login', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer secret' },
+      body: JSON.stringify({
+        mode: 'password',
+        phone: '13800138000',
+        password: 'secret-password',
+        accountId: 'main',
+        newDevice: true,
+      }),
+    }), env, {} as ExecutionContext)
+
+    expect(response.status).toBe(200)
+    expect(JSON.parse(kv.get('TAYGEDO_ACCOUNTS') ?? '[]')[0].deviceId).not.toBe('device-1')
   })
 
   it('does not expose management APIs beyond login on Cloudflare', async () => {

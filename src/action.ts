@@ -30,6 +30,8 @@ export async function runAction(options: ActionOptions = {}): Promise<void> {
     notificationUrls: config.notificationUrls,
     maxRetries: config.maxRetries,
     forceRun: config.forceRun,
+    coinTasks: config.coinTasks,
+    sharePlatform: config.sharePlatform,
   })
   await service.run()
 

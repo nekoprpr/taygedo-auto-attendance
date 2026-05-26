@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { CloudflareKvAccountStore, EnvAccountStore, FileAccountStore, UpstashAccountStore } from '../src/stores/account-store.js'
 import { CloudflareKvStateStore, FileStateStore, MemoryStateStore, UpstashStateStore } from '../src/stores/state-store.js'
+import { UnstorageAccountStore, UnstorageStateStore } from '../src/stores/unstorage-store.js'
 
 describe('AccountStore implementations', () => {
   it('reads accounts from env and refuses writes', async () => {
@@ -61,6 +62,17 @@ describe('AccountStore implementations', () => {
       'https://redis.example.com/set/accounts/%5B%7B%22id%22%3A%22alt%22%7D%5D',
       expect.any(Object),
     )
+  })
+
+  it('reads and writes accounts through unstorage', async () => {
+    const storage = new Map<string, unknown>()
+    const store = new UnstorageAccountStore({
+      getItem: async <T>(key: string) => storage.get(key) as T ?? null,
+      setItem: async (key, value) => { storage.set(key, value) },
+    }, 'accounts')
+
+    await store.writeAccounts('[{"id":"main"}]')
+    await expect(store.readAccounts()).resolves.toBe('[{"id":"main"}]')
   })
 })
 
@@ -120,5 +132,21 @@ describe('StateStore implementations', () => {
       'https://redis.example.com/get/prod%3Alast',
       expect.any(Object),
     )
+  })
+
+  it('stores state through unstorage with ttl when supported', async () => {
+    const storage = new Map<string, unknown>()
+    const options: unknown[] = []
+    const store = new UnstorageStateStore({
+      getItem: async <T>(key: string) => storage.get(key) as T ?? null,
+      setItem: async (key, value, option) => {
+        storage.set(key, value)
+        options.push(option)
+      },
+    }, 'prod')
+
+    await store.set('last', { ok: true }, { ttlSeconds: 60 })
+    await expect(store.get('last')).resolves.toEqual({ ok: true })
+    expect(options[0]).toEqual({ ttl: 60 })
   })
 })

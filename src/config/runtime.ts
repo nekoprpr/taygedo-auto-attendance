@@ -1,5 +1,5 @@
-export type AccountStoreKind = 'env' | 'file' | 'cloudflare-kv' | 'upstash'
-export type StateStoreKind = 'memory' | 'file' | 'cloudflare-kv' | 'upstash'
+export type AccountStoreKind = 'env' | 'file' | 'cloudflare-kv' | 'upstash' | 'unstorage'
+export type StateStoreKind = 'memory' | 'file' | 'cloudflare-kv' | 'upstash' | 'unstorage'
 
 export interface RuntimeConfig {
   accountsSecret?: string
@@ -14,6 +14,9 @@ export interface RuntimeConfig {
   accountsKey: string
   statePrefix: string
   forceRun: boolean
+  coinTasks: boolean
+  sharePlatform: string
+  loopSeconds?: number
   adminToken?: string
   upstashUrl?: string
   upstashToken?: string
@@ -36,6 +39,9 @@ export function loadRuntimeConfig(env: Record<string, string | undefined>): Runt
     accountsKey: optionalEnv(env, 'TAYGEDO_ACCOUNTS_KEY') ?? 'TAYGEDO_ACCOUNTS',
     statePrefix: optionalEnv(env, 'TAYGEDO_STATE_PREFIX') ?? 'taygedo',
     forceRun: parseBoolean(optionalEnv(env, 'TAYGEDO_FORCE_RUN')),
+    coinTasks: parseBoolean(optionalEnv(env, 'TAYGEDO_COIN_TASKS') ?? 'true'),
+    sharePlatform: optionalEnv(env, 'TAYGEDO_SHARE_PLATFORM') ?? 'qq',
+    loopSeconds: parseOptionalPositiveInteger(optionalEnv(env, 'TAYGEDO_LOOP_SECONDS'), 'TAYGEDO_LOOP_SECONDS'),
     adminToken: optionalEnv(env, 'TAYGEDO_ADMIN_TOKEN'),
     upstashUrl: optionalEnv(env, 'TAYGEDO_UPSTASH_REDIS_REST_URL') ?? optionalEnv(env, 'UPSTASH_REDIS_REST_URL'),
     upstashToken: optionalEnv(env, 'TAYGEDO_UPSTASH_REDIS_REST_TOKEN') ?? optionalEnv(env, 'UPSTASH_REDIS_REST_TOKEN'),
@@ -90,15 +96,22 @@ function parsePositiveInteger(value: string, key: string): number {
   return parsed
 }
 
+function parseOptionalPositiveInteger(value: string | undefined, key: string): number | undefined {
+  if (!value) {
+    return undefined
+  }
+  return parsePositiveInteger(value, key)
+}
+
 function parseAccountStore(value: string): AccountStoreKind {
-  if (value === 'env' || value === 'file' || value === 'cloudflare-kv' || value === 'upstash') {
+  if (value === 'env' || value === 'file' || value === 'cloudflare-kv' || value === 'upstash' || value === 'unstorage') {
     return value
   }
   throw new Error(`Unsupported TAYGEDO_ACCOUNT_STORE: ${value}`)
 }
 
 function parseStateStore(value: string): StateStoreKind {
-  if (value === 'memory' || value === 'file' || value === 'cloudflare-kv' || value === 'upstash') {
+  if (value === 'memory' || value === 'file' || value === 'cloudflare-kv' || value === 'upstash' || value === 'unstorage') {
     return value
   }
   throw new Error(`Unsupported TAYGEDO_STATE_STORE: ${value}`)

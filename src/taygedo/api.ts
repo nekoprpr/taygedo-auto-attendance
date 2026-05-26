@@ -1,6 +1,6 @@
 import { createCipheriv, createHash } from 'node:crypto'
+import { buildH5Request, buildNativeRequest, TAYGEDO_BASE_URL } from './protocol.js'
 
-const TAYGEDO_BASE_URL = 'https://bbs-api.tajiduo.com'
 const LAOHU_BASE_URL = 'https://user.laohu.com'
 const LAOHU_SECRET = '89155cc4e8634ec5b1b6364013b23e3e'
 
@@ -32,6 +32,25 @@ export interface BindRoleResponse {
 
 export interface GameRolesResponse {
   roles: Array<{ roleId: string, roleName?: string }>
+}
+
+export interface CoinTask {
+  code: string
+  completeTimes: number
+  limitTimes: number
+}
+
+export interface RecommendPost {
+  postId: string
+  selfOperation?: {
+    liked?: boolean
+  }
+}
+
+export interface CoinState {
+  todayCoin?: number
+  limitCoin?: number
+  [key: string]: unknown
 }
 
 export class TaygedoApi {
@@ -387,12 +406,13 @@ export class TaygedoApi {
   }
 
   async getSigninState(accessToken: string, gameId = '1256'): Promise<{ days: number }> {
-    const response = await this.fetchImpl(`${TAYGEDO_BASE_URL}/apihub/awapi/signin/state?gameId=${encodeURIComponent(gameId)}`, {
+    const request = buildH5Request({
+      accessToken,
       method: 'GET',
-      headers: {
-        Authorization: accessToken,
-      },
+      path: '/apihub/awapi/signin/state',
+      query: { gameId },
     })
+    const response = await this.fetchImpl(request.url, request.init)
 
     const data = await readJson(response, 'getSigninState') as {
       code?: number
@@ -410,12 +430,13 @@ export class TaygedoApi {
   }
 
   async getSigninRewards(accessToken: string, gameId = '1256'): Promise<Array<{ name: string, num: number }>> {
-    const response = await this.fetchImpl(`${TAYGEDO_BASE_URL}/apihub/awapi/sign/rewards?gameId=${encodeURIComponent(gameId)}`, {
+    const request = buildH5Request({
+      accessToken,
       method: 'GET',
-      headers: {
-        Authorization: accessToken,
-      },
+      path: '/apihub/awapi/sign/rewards',
+      query: { gameId },
     })
+    const response = await this.fetchImpl(request.url, request.init)
 
     const data = await readJson(response, 'getSigninRewards') as {
       code?: number
@@ -431,14 +452,13 @@ export class TaygedoApi {
   }
 
   async gameSignin(accessToken: string, roleId: string, gameId = '1256'): Promise<void> {
-    const response = await this.fetchImpl(`${TAYGEDO_BASE_URL}/apihub/awapi/sign`, {
+    const request = buildH5Request({
+      accessToken,
       method: 'POST',
-      headers: {
-        authorization: accessToken,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: `roleId=${encodeURIComponent(roleId)}&gameId=${encodeURIComponent(gameId)}`,
+      path: '/apihub/awapi/sign',
+      body: { roleId, gameId },
     })
+    const response = await this.fetchImpl(request.url, request.init)
 
     const data = await readJson(response, 'gameSignin') as {
       code?: number
@@ -448,6 +468,167 @@ export class TaygedoApi {
     if (!response.ok || data.code !== 0) {
       throw new Error(data.msg ?? 'gameSignin request failed')
     }
+  }
+
+  async getUserTasks(accessToken: string, uid: string, deviceId: string): Promise<CoinTask[]> {
+    const request = buildNativeRequest({
+      accessToken,
+      uid,
+      deviceId,
+      method: 'GET',
+      path: '/apihub/api/getUserTasks',
+      query: { gid: 1 },
+    })
+    const response = await this.fetchImpl(request.url, request.init)
+    const data = await readJson(response, 'getUserTasks') as {
+      code?: number
+      msg?: string
+      data?: {
+        task_list1?: unknown[]
+      }
+    }
+
+    if (!response.ok || data.code !== 0 || !Array.isArray(data.data?.task_list1)) {
+      throw new Error(data.msg ?? 'getUserTasks request failed')
+    }
+
+    return data.data.task_list1
+      .filter(isRecord)
+      .map(task => ({
+        code: String(task.code ?? ''),
+        completeTimes: toNumber(task.completeTimes),
+        limitTimes: toNumber(task.limitTimes),
+      }))
+      .filter(task => task.code)
+  }
+
+  async bbsSignin(accessToken: string, uid: string, deviceId: string): Promise<void> {
+    const request = buildNativeRequest({
+      accessToken,
+      uid,
+      deviceId,
+      method: 'POST',
+      path: '/apihub/api/signin',
+      body: { communityId: 2 },
+    })
+    const response = await this.fetchImpl(request.url, request.init)
+    const data = await readJson(response, 'bbsSignin') as {
+      code?: number
+      msg?: string
+    }
+    if (!response.ok || data.code !== 0) {
+      throw new Error(data.msg ?? 'bbsSignin request failed')
+    }
+  }
+
+  async getRecommendPostList(accessToken: string, uid: string, deviceId: string, count = 20, page = 1): Promise<RecommendPost[]> {
+    const request = buildNativeRequest({
+      accessToken,
+      uid,
+      deviceId,
+      method: 'GET',
+      path: '/bbs/api/getRecommendPostList',
+      query: { communityId: 2, count, page },
+    })
+    const response = await this.fetchImpl(request.url, request.init)
+    const data = await readJson(response, 'getRecommendPostList') as {
+      code?: number
+      msg?: string
+      data?: {
+        list?: unknown[]
+      } | unknown[]
+    }
+    const rawList = Array.isArray(data.data)
+      ? data.data
+      : Array.isArray(data.data?.list)
+        ? data.data.list
+        : undefined
+
+    if (!response.ok || data.code !== 0 || !rawList) {
+      throw new Error(data.msg ?? 'getRecommendPostList request failed')
+    }
+
+    return rawList.filter(isRecord).map(toRecommendPost).filter((post): post is RecommendPost => post !== undefined)
+  }
+
+  async getPostFull(accessToken: string, uid: string, deviceId: string, postId: string): Promise<RecommendPost> {
+    const request = buildNativeRequest({
+      accessToken,
+      uid,
+      deviceId,
+      method: 'GET',
+      path: '/bbs/api/getPostFull',
+      query: { postId },
+    })
+    const response = await this.fetchImpl(request.url, request.init)
+    const data = await readJson(response, 'getPostFull') as {
+      code?: number
+      msg?: string
+      data?: unknown
+    }
+    const post = isRecord(data.data) ? toRecommendPost(data.data) : undefined
+
+    if (!response.ok || data.code !== 0 || !post) {
+      throw new Error(data.msg ?? 'getPostFull request failed')
+    }
+
+    return post
+  }
+
+  async likePost(accessToken: string, uid: string, deviceId: string, postId: string): Promise<void> {
+    const request = buildNativeRequest({
+      accessToken,
+      uid,
+      deviceId,
+      method: 'POST',
+      path: '/bbs/api/post/like',
+      body: { postId },
+    })
+    const response = await this.fetchImpl(request.url, request.init)
+    const data = await readJson(response, 'likePost') as {
+      code?: number
+      msg?: string
+    }
+    if (!response.ok || data.code !== 0) {
+      throw new Error(data.msg ?? 'likePost request failed')
+    }
+  }
+
+  async sharePost(accessToken: string, uid: string, deviceId: string, postId: string, platform: string): Promise<void> {
+    const request = buildNativeRequest({
+      accessToken,
+      uid,
+      deviceId,
+      method: 'POST',
+      path: '/bbs/api/post/share',
+      body: { platform, postId },
+    })
+    const response = await this.fetchImpl(request.url, request.init)
+    const data = await readJson(response, 'sharePost') as {
+      code?: number
+      msg?: string
+    }
+    if (!response.ok || data.code !== 0) {
+      throw new Error(data.msg ?? 'sharePost request failed')
+    }
+  }
+
+  async getUserCoinTaskState(accessToken: string): Promise<CoinState> {
+    const request = buildH5Request({
+      accessToken,
+      method: 'GET',
+      path: '/apihub/api/getUserCoinTaskState',
+    })
+    const response = await this.fetchImpl(request.url, request.init)
+    const data = await readJson(response, 'getUserCoinTaskState') as {
+      code?: number
+      msg?: string
+      data?: CoinState
+    }
+    if (!response.ok || data.code !== 0 || !isRecord(data.data)) {
+      throw new Error(data.msg ?? 'getUserCoinTaskState request failed')
+    }
+    return data.data
   }
 }
 
@@ -492,4 +673,37 @@ async function readJson(response: Response, endpointName: string): Promise<unkno
 function summarizeResponse(text: string): string {
   const normalized = text.replace(/\s+/g, ' ').trim()
   return normalized.length > 160 ? `${normalized.slice(0, 157)}...` : normalized
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function toNumber(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+  return 0
+}
+
+function toRecommendPost(value: Record<string, unknown>): RecommendPost | undefined {
+  const postId = value.postId ?? value.id
+  if (postId === undefined) {
+    return undefined
+  }
+  const selfOperation = isRecord(value.selfOperation) ? value.selfOperation : undefined
+  return {
+    postId: String(postId),
+    ...(selfOperation
+      ? {
+          selfOperation: {
+            liked: typeof selfOperation.liked === 'boolean' ? selfOperation.liked : undefined,
+          },
+        }
+      : {}),
+  }
 }

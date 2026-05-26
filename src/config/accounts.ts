@@ -5,6 +5,8 @@ export interface TaygedoAccount {
   name: string
   uid: string
   deviceId: string
+  openudid?: string
+  vendorid?: string
   refreshToken: string
   accessToken?: string
   laohuToken?: string
@@ -43,6 +45,8 @@ export function parseAccountsSecret(secret: string): TaygedoAccount[] {
     }
 
     assignOptionalString(parsedAccount, account, 'accessToken')
+    assignOptionalString(parsedAccount, account, 'openudid')
+    assignOptionalString(parsedAccount, account, 'vendorid')
     assignOptionalString(parsedAccount, account, 'laohuToken')
     assignOptionalString(parsedAccount, account, 'laohuUserId')
     assignOptionalString(parsedAccount, account, 'tokenUpdatedAt')
@@ -135,7 +139,7 @@ function optionalString(account: Record<string, unknown>, field: keyof TaygedoAc
 function assignOptionalString(
   parsedAccount: TaygedoAccount,
   account: Record<string, unknown>,
-  field: 'accessToken' | 'laohuToken' | 'laohuUserId' | 'tokenUpdatedAt' | 'phone',
+  field: 'accessToken' | 'openudid' | 'vendorid' | 'laohuToken' | 'laohuUserId' | 'tokenUpdatedAt' | 'phone',
 ): void {
   const value = optionalString(account, field)
   if (value) {

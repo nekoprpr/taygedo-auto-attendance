@@ -98,6 +98,83 @@ describe('TaygedoApi', () => {
     )
   })
 
+  it('calls native and h5 coin task endpoints with protocol headers', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        code: 0,
+        msg: 'ok',
+        data: {
+          task_list1: [
+            { code: 'browse_post_c', completeTimes: 1, limitTimes: 5 },
+            { code: 'like_post_c', completeTimes: 0, limitTimes: 5 },
+          ],
+        },
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        code: 0,
+        msg: 'ok',
+        data: {
+          list: [
+            { postId: 'post-1', selfOperation: { liked: false } },
+            { postId: 'post-2', selfOperation: { liked: true } },
+          ],
+        },
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        code: 0,
+        msg: 'ok',
+        data: { postId: 'post-1', selfOperation: { liked: false } },
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: 0, msg: 'ok' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: 0, msg: 'ok' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: 0, msg: 'ok', data: { todayCoin: 110, limitCoin: 150 } }), { status: 200 }))
+
+    const api = new TaygedoApi({ fetch: fetchMock })
+
+    expect(await api.getUserTasks('access-token', 'uid-1', 'device-1')).toEqual([
+      { code: 'browse_post_c', completeTimes: 1, limitTimes: 5 },
+      { code: 'like_post_c', completeTimes: 0, limitTimes: 5 },
+    ])
+    expect(await api.getRecommendPostList('access-token', 'uid-1', 'device-1', 20, 1)).toEqual([
+      { postId: 'post-1', selfOperation: { liked: false } },
+      { postId: 'post-2', selfOperation: { liked: true } },
+    ])
+    expect(await api.getPostFull('access-token', 'uid-1', 'device-1', 'post-1')).toEqual({
+      postId: 'post-1',
+      selfOperation: { liked: false },
+    })
+    await expect(api.likePost('access-token', 'uid-1', 'device-1', 'post-1')).resolves.toBeUndefined()
+    await expect(api.sharePost('access-token', 'uid-1', 'device-1', 'post-1', 'qq')).resolves.toBeUndefined()
+    expect(await api.getUserCoinTaskState('access-token')).toEqual({ todayCoin: 110, limitCoin: 150 })
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://bbs-api.tajiduo.com/apihub/api/getUserTasks?gid=1',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'access-token',
+          appversion: '1.2.2',
+          platform: 'ios',
+          uid: 'uid-1',
+          deviceid: 'device-1',
+          ds: expect.any(String),
+        }),
+      }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      6,
+      'https://bbs-api.tajiduo.com/apihub/api/getUserCoinTaskState',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.not.objectContaining({
+          ds: expect.any(String),
+        }),
+      }),
+    )
+    expect(fetchMock.mock.calls[4]?.[1]?.body).toBe('platform=qq&postId=post-1')
+  })
+
   it('sends captcha and exchanges login credentials through the laohu and usercenter endpoints', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ code: 0, message: 'ok' }), { status: 200 }))

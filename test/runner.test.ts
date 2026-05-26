@@ -634,4 +634,88 @@ describe('runAttendance', () => {
       refreshToken: 'new-refresh',
     }))
   })
+
+  it('runs enabled coin tasks and includes the result in structured history and summary', async () => {
+    const api = {
+      refreshToken: vi.fn().mockResolvedValue({ accessToken: 'access-main', refreshToken: 'new-main' }),
+      getGameRoles: vi.fn().mockResolvedValue({ roles: [] }),
+      appSignin: vi.fn().mockResolvedValue({ exp: 10, goldCoin: 20 }),
+      getSigninState: vi.fn(),
+      getSigninRewards: vi.fn(),
+      gameSignin: vi.fn(),
+      getUserTasks: vi.fn().mockResolvedValue([
+        { code: 'signin_c', completeTimes: 0, limitTimes: 1 },
+        { code: 'browse_post_c', completeTimes: 3, limitTimes: 5 },
+        { code: 'like_post_c', completeTimes: 4, limitTimes: 5 },
+        { code: 'share', completeTimes: 0, limitTimes: 1 },
+      ]),
+      bbsSignin: vi.fn().mockResolvedValue(undefined),
+      getRecommendPostList: vi.fn().mockResolvedValue([
+        { postId: 'post-1', selfOperation: { liked: false } },
+        { postId: 'post-2', selfOperation: { liked: true } },
+        { postId: 'post-3', selfOperation: { liked: false } },
+      ]),
+      getPostFull: vi.fn()
+        .mockResolvedValueOnce({ postId: 'post-1', selfOperation: { liked: false } })
+        .mockResolvedValueOnce({ postId: 'post-3', selfOperation: { liked: false } }),
+      likePost: vi.fn().mockResolvedValue(undefined),
+      sharePost: vi.fn().mockResolvedValue(undefined),
+      getUserCoinTaskState: vi.fn().mockResolvedValue({ todayCoin: 110, limitCoin: 150 }),
+    }
+
+    const result = await runAttendance({
+      accountsSecret: JSON.stringify([
+        { id: 'main', name: '主账号', uid: '1', deviceId: 'device-1', refreshToken: 'old-main' },
+      ]),
+      api,
+      maxRetries: 1,
+      coinTasks: true,
+      sharePlatform: 'qq',
+      delay: () => Promise.resolve(),
+    })
+
+    expect(api.bbsSignin).toHaveBeenCalledWith('access-main', '1', 'device-1')
+    expect(api.getPostFull).toHaveBeenCalledTimes(2)
+    expect(api.likePost).toHaveBeenCalledTimes(1)
+    expect(api.likePost).toHaveBeenCalledWith('access-main', '1', 'device-1', 'post-1')
+    expect(api.sharePost).toHaveBeenCalledWith('access-main', '1', 'device-1', 'post-1', 'qq')
+    expect(result.accounts[0]?.coinTasks).toEqual({
+      bbsSignin: true,
+      browse: { done: 2, target: 2 },
+      like: { done: 1, target: 1 },
+      share: { done: 1, target: 1, platform: 'qq' },
+      coinState: { todayCoin: 110, limitCoin: 150 },
+    })
+    expect(result.summary).toContain('金币任务：签到✓ 浏览2/2 点赞1/1 分享✓ 今日金币110/150')
+  })
+
+  it('does not call coin task APIs when coin tasks are disabled', async () => {
+    const api = {
+      refreshToken: vi.fn().mockResolvedValue({ accessToken: 'access-main', refreshToken: 'new-main' }),
+      getGameRoles: vi.fn().mockResolvedValue({ roles: [] }),
+      appSignin: vi.fn().mockResolvedValue({ exp: 10, goldCoin: 20 }),
+      getSigninState: vi.fn(),
+      getSigninRewards: vi.fn(),
+      gameSignin: vi.fn(),
+      getUserTasks: vi.fn(),
+      bbsSignin: vi.fn(),
+      getRecommendPostList: vi.fn(),
+      getPostFull: vi.fn(),
+      likePost: vi.fn(),
+      sharePost: vi.fn(),
+      getUserCoinTaskState: vi.fn(),
+    }
+
+    await runAttendance({
+      accountsSecret: JSON.stringify([
+        { id: 'main', name: '主账号', uid: '1', deviceId: 'device-1', refreshToken: 'old-main' },
+      ]),
+      api,
+      maxRetries: 1,
+      coinTasks: false,
+    })
+
+    expect(api.getUserTasks).not.toHaveBeenCalled()
+    expect(api.bbsSignin).not.toHaveBeenCalled()
+  })
 })

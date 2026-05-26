@@ -1,8 +1,12 @@
+import { readFile, writeFile } from 'node:fs/promises'
 import { loadRuntimeConfig } from '../config/runtime.js'
 import { AttendanceService } from '../services/attendance-service.js'
 import { LoginService, type LoginServiceRunOptions } from '../services/login-service.js'
 import { createAccountStore, createStateStore } from '../stores/factory.js'
 import { loadOrCreateCredentialKey } from '../config/credentials.js'
+import { ensureAccountDevice } from '../taygedo/device.js'
+import { parseAccountsSecret } from '../config/accounts.js'
+import { runWithOptionalLoop } from './loop.js'
 
 interface LocalCliDependencies {
   service?: LocalCliService
@@ -12,6 +16,7 @@ interface LocalCliService {
   runAttendance(options: { accountsFile: string, stateDir?: string, forceRun?: boolean }): Promise<unknown>
   runLogin(options: LoginServiceRunOptions): Promise<unknown>
   sendLoginCode(options: LoginServiceRunOptions): Promise<unknown>
+  updateDevices(options: { accountsFile: string, accountId?: string, force?: boolean, print?: boolean }): Promise<unknown>
 }
 
 export async function runLocalCli(argv = process.argv.slice(2), deps: LocalCliDependencies = {}): Promise<void> {
@@ -21,32 +26,49 @@ export async function runLocalCli(argv = process.argv.slice(2), deps: LocalCliDe
 
   if (command === 'attendance') {
     const accountsFile = options['accounts-file']
-    await service.runAttendance({
-      accountsFile: accountsFile ?? '',
-      stateDir: options['state-dir'],
-      forceRun: options.force === 'true' || options.force === '1' || options.force === '',
+    const loopSeconds = parseLoopSeconds(process.env.TAYGEDO_LOOP_SECONDS)
+    await runWithOptionalLoop({
+      loopSeconds,
+      runOnce: async () => {
+        await service.runAttendance({
+          accountsFile: accountsFile ?? '',
+          stateDir: options['state-dir'],
+          forceRun: options.force === 'true' || options.force === '1' || options.force === '',
+        })
+      },
     })
     return
   }
 
   if (command === 'login') {
     const accountsFile = requireOption(options, 'accounts-file')
-      await service.runLogin({
-        mode: requireOption(options, 'mode'),
-        phone: requireOption(options, 'phone'),
-        password: options.password ?? process.env.TAYGEDO_LOGIN_PASSWORD ?? process.env.TAYGEDO_PASSWORD,
-        captcha: options.captcha,
-        deviceId: options['device-id'],
-        accountId: options['account-id'],
-        accountName: options['account-name'],
-        accountsFile,
-        credentialKey: options['credential-key'],
-        credentialKeyPath: options['credential-key-file'],
-      })
+    await service.runLogin({
+      mode: requireOption(options, 'mode'),
+      phone: requireOption(options, 'phone'),
+      password: options.password ?? process.env.TAYGEDO_LOGIN_PASSWORD ?? process.env.TAYGEDO_PASSWORD,
+      captcha: options.captcha,
+      deviceId: options['device-id'],
+      newDevice: options['new-device'] === 'true' || options['new-device'] === '1' || options['new-device'] === '',
+      accountId: options['account-id'],
+      accountName: options['account-name'],
+      accountsFile,
+      credentialKey: options['credential-key'],
+      credentialKeyPath: options['credential-key-file'],
+    })
     return
   }
 
-  throw new Error('Usage: local-cli attendance|login --accounts-file <path>')
+  if (command === 'device') {
+    await service.updateDevices({
+      accountsFile: requireOption(options, 'accounts-file'),
+      accountId: options['account-id'],
+      force: options.force === 'true' || options.force === '1' || options.force === '',
+      print: options.print === 'true' || options.print === '1' || options.print === '',
+    })
+    return
+  }
+
+  throw new Error('Usage: local-cli attendance|login|device --accounts-file <path>')
 }
 
 function createDefaultService(): LocalCliService {
@@ -68,6 +90,8 @@ function createDefaultService(): LocalCliService {
         notificationUrls: config.notificationUrls,
         maxRetries: config.maxRetries,
         forceRun: options.forceRun ?? config.forceRun,
+        coinTasks: config.coinTasks,
+        sharePlatform: config.sharePlatform,
       }).run()
     },
     async runLogin(options) {
@@ -82,6 +106,21 @@ function createDefaultService(): LocalCliService {
     },
     async sendLoginCode(options) {
       await new LoginService().sendLoginCode(options)
+    },
+    async updateDevices(options) {
+      const payload = await readFile(options.accountsFile, 'utf8')
+      const accounts = parseAccountsSecret(payload)
+      const updatedAccounts = accounts.map(account => {
+        if (options.accountId && account.id !== options.accountId) {
+          return account
+        }
+        return ensureAccountDevice(account, { force: options.force })
+      })
+      const nextPayload = `${JSON.stringify(updatedAccounts, null, 2)}\n`
+      console.log(nextPayload.trim())
+      if (!options.print) {
+        await writeFile(options.accountsFile, nextPayload, 'utf8')
+      }
     },
   }
 }
@@ -110,6 +149,17 @@ function requireOption(options: Record<string, string | undefined>, key: string)
     throw new Error(`Missing required option --${key}`)
   }
   return value
+}
+
+function parseLoopSeconds(value: string | undefined): number | undefined {
+  if (!value || value.trim() === '') {
+    return undefined
+  }
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error('TAYGEDO_LOOP_SECONDS must be a positive integer')
+  }
+  return parsed
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

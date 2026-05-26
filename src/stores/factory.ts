@@ -14,6 +14,7 @@ import {
   type StateStore,
   UpstashStateStore,
 } from './state-store.js'
+import { createUnstorageFromEnv, UnstorageAccountStore, UnstorageStateStore } from './unstorage-store.js'
 
 interface StoreFactoryOptions {
   config: RuntimeConfig
@@ -37,6 +38,9 @@ export function createAccountStore(options: StoreFactoryOptions): AccountStore {
     }
     return new CloudflareKvAccountStore(options.kv, config.accountsKey, config.accountsSecret)
   }
+  if (config.accountStore === 'unstorage') {
+    return new LazyAccountStore(async () => new UnstorageAccountStore(await createUnstorageFromEnv(), config.accountsKey))
+  }
   if (!config.upstashUrl || !config.upstashToken) {
     throw new Error('Upstash account store requires TAYGEDO_UPSTASH_REDIS_REST_URL and TAYGEDO_UPSTASH_REDIS_REST_TOKEN')
   }
@@ -57,8 +61,49 @@ export function createStateStore(options: StoreFactoryOptions): StateStore {
     }
     return new CloudflareKvStateStore(options.kv, config.statePrefix)
   }
+  if (config.stateStore === 'unstorage') {
+    return new LazyStateStore(async () => new UnstorageStateStore(await createUnstorageFromEnv(), config.statePrefix))
+  }
   if (!config.upstashUrl || !config.upstashToken) {
     throw new Error('Upstash state store requires TAYGEDO_UPSTASH_REDIS_REST_URL and TAYGEDO_UPSTASH_REDIS_REST_TOKEN')
   }
   return new UpstashStateStore(config.upstashUrl, config.upstashToken, config.statePrefix, options.fetch)
+}
+
+class LazyAccountStore implements AccountStore {
+  private store?: AccountStore
+
+  constructor(private readonly create: () => Promise<AccountStore>) {}
+
+  async readAccounts(): Promise<string> {
+    return await (await this.get()).readAccounts()
+  }
+
+  async writeAccounts(payload: string): Promise<void> {
+    await (await this.get()).writeAccounts(payload)
+  }
+
+  private async get(): Promise<AccountStore> {
+    this.store ??= await this.create()
+    return this.store
+  }
+}
+
+class LazyStateStore implements StateStore {
+  private store?: StateStore
+
+  constructor(private readonly create: () => Promise<StateStore>) {}
+
+  async get<T>(key: string): Promise<T | undefined> {
+    return await (await this.getStore()).get<T>(key)
+  }
+
+  async set<T>(key: string, value: T, options?: { ttlSeconds?: number }): Promise<void> {
+    await (await this.getStore()).set(key, value, options)
+  }
+
+  private async getStore(): Promise<StateStore> {
+    this.store ??= await this.create()
+    return this.store
+  }
 }

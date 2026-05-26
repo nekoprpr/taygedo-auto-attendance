@@ -16,6 +16,7 @@ export interface LoginServiceRunOptions {
   credentialKeyPath?: string
   writeCredentialKey?: (credentialKey: string) => Promise<void>
   writeAccounts?: (payload: string) => Promise<void>
+  newDevice?: boolean
 }
 
 export class LoginService {
@@ -35,6 +36,7 @@ export class LoginService {
         TAYGEDO_LOGIN_PASSWORD: options.password,
         TAYGEDO_LOGIN_CAPTCHA: options.captcha,
         TAYGEDO_LOGIN_DEVICE_ID: options.deviceId,
+        TAYGEDO_LOGIN_NEW_DEVICE: options.newDevice ? 'true' : undefined,
         TAYGEDO_LOGIN_ACCOUNT_ID: options.accountId,
         TAYGEDO_LOGIN_ACCOUNT_NAME: options.accountName,
         TAYGEDO_CREDENTIAL_KEY: options.credentialKey,

@@ -5,6 +5,7 @@ import { withRetries } from './utils/retry.js'
 import { TAYGEDO_GAME_IDS } from './taygedo/games.js'
 import { decryptPassword } from './config/credentials.js'
 import type { StateStore } from './stores/state-store.js'
+import { shanghaiDateTime } from './utils/time.js'
 
 export interface RunnerDependencies {
   accountsSecret: string
@@ -17,11 +18,24 @@ export interface RunnerDependencies {
   secretWriter?: (payload: string) => Promise<void>
   stateStore?: StateStore
   forceRun?: boolean
+  coinTasks?: boolean
+  sharePlatform?: string
+  delay?: (ms: number) => Promise<void>
   now?: Date
 }
 
 type AttendanceApi = Pick<TaygedoApi, 'refreshToken' | 'getGameRoles' | 'appSignin' | 'getSigninState' | 'getSigninRewards' | 'gameSignin'>
-  & Partial<Pick<TaygedoApi, 'loginWithPassword' | 'userCenterLogin'>>
+  & Partial<Pick<TaygedoApi,
+    | 'loginWithPassword'
+    | 'userCenterLogin'
+    | 'getUserTasks'
+    | 'bbsSignin'
+    | 'getRecommendPostList'
+    | 'getPostFull'
+    | 'likePost'
+    | 'sharePost'
+    | 'getUserCoinTaskState'
+  >>
 
 export interface RunAttendanceResult {
   updatedAccounts: TaygedoAccount[]
@@ -34,6 +48,25 @@ export interface RunAttendanceResult {
   failedCount: number
   skippedCount: number
   notificationErrors: NotificationError[]
+}
+
+export interface CoinTaskSummary {
+  bbsSignin?: boolean
+  browse: {
+    done: number
+    target: number
+  }
+  like: {
+    done: number
+    target: number
+  }
+  share: {
+    done: number
+    target: number
+    platform: string
+  }
+  coinState?: Record<string, unknown>
+  error?: string
 }
 
 export interface AccountRunSummary {
@@ -55,6 +88,7 @@ export interface AccountRunSummary {
     }
     success: boolean
   }>
+  coinTasks?: CoinTaskSummary
   error?: string
   skippedReason?: string
 }
@@ -92,7 +126,11 @@ export async function runAttendance(deps: RunnerDependencies): Promise<RunAttend
       }
 
       const accountRun = await withRetries(async () => {
-        return await runAccount(api, account, deps.accountPasswords ?? {}, deps.credentialKey)
+        return await runAccount(api, account, deps.accountPasswords ?? {}, deps.credentialKey, {
+          coinTasks: deps.coinTasks ?? true,
+          sharePlatform: deps.sharePlatform ?? 'qq',
+          delay: deps.delay ?? sleep,
+        })
       }, deps.maxRetries ?? 3)
 
       if (accountRun.shouldUpdateSecret) {
@@ -180,13 +218,20 @@ async function runAccount(
   account: TaygedoAccount,
   accountPasswords: Record<string, string>,
   credentialKey?: string,
+  options: AccountRunOptions = {},
 ): Promise<AccountRunResult> {
   if (account.accessToken) {
-    return await signWithRecoverableSession(api, account, account.accessToken, accountPasswords, credentialKey, false)
+    return await signWithRecoverableSession(api, account, account.accessToken, accountPasswords, credentialKey, false, options)
   }
 
   const session = await refreshOrRebuildSession(api, account, accountPasswords, credentialKey)
-  return await signWithRecoverableSession(api, session.account, session.accessToken, accountPasswords, credentialKey, true)
+  return await signWithRecoverableSession(api, session.account, session.accessToken, accountPasswords, credentialKey, true, options)
+}
+
+interface AccountRunOptions {
+  coinTasks?: boolean
+  sharePlatform?: string
+  delay?: (ms: number) => Promise<void>
 }
 
 async function refreshOrRebuildSession(
@@ -267,6 +312,7 @@ async function signWithSession(
   account: TaygedoAccount,
   accessToken: string,
   shouldUpdateSecret: boolean,
+  options: AccountRunOptions = {},
 ): Promise<AccountRunResult> {
   const gameRoles = await getAllGameRoles(api, accessToken, account.uid, account.deviceId)
   const firstRole = gameRoles[0]
@@ -296,6 +342,9 @@ async function signWithSession(
   if (firstRole?.roleName ?? account.roleName) {
     updatedAccount.roleName = firstRole?.roleName ?? account.roleName
   }
+  const coinTasks = options.coinTasks === false
+    ? undefined
+    : await runCoinTasks(api as AttendanceApi, account, accessToken, options)
 
   return {
     updatedAccount,
@@ -307,6 +356,7 @@ async function signWithSession(
       success: true,
       appSignin,
       gameSignins,
+      ...(coinTasks ? { coinTasks } : {}),
     },
   }
 }
@@ -318,17 +368,106 @@ async function signWithRecoverableSession(
   accountPasswords: Record<string, string>,
   credentialKey: string | undefined,
   shouldUpdateSecret: boolean,
+  options: AccountRunOptions = {},
 ): Promise<AccountRunResult> {
   try {
-    return await signWithSession(api, account, accessToken, shouldUpdateSecret)
+    return await signWithSession(api, account, accessToken, shouldUpdateSecret, options)
   }
   catch (error) {
     if (!isAuthError(error)) {
       throw error
     }
     const session = await refreshOrRebuildSession(api, account, accountPasswords, credentialKey)
-    return await signWithSession(api, session.account, session.accessToken, true)
+    return await signWithSession(api, session.account, session.accessToken, true, options)
   }
+}
+
+async function runCoinTasks(
+  api: AttendanceApi,
+  account: TaygedoAccount,
+  accessToken: string,
+  options: AccountRunOptions,
+): Promise<CoinTaskSummary | undefined> {
+  if (
+    !api.getUserTasks
+    || !api.bbsSignin
+    || !api.getRecommendPostList
+    || !api.getPostFull
+    || !api.likePost
+    || !api.sharePost
+    || !api.getUserCoinTaskState
+  ) {
+    return undefined
+  }
+
+  const delay = options.delay ?? sleep
+  const sharePlatform = options.sharePlatform ?? 'qq'
+  const tasks = await api.getUserTasks(accessToken, account.uid, account.deviceId)
+  const bbsTarget = remainingTaskCount(tasks, 'signin_c', 1)
+  const browseTarget = remainingTaskCount(tasks, 'browse_post_c', 5)
+  const likeTarget = remainingTaskCount(tasks, 'like_post_c', 5)
+  const shareTarget = remainingTaskCount(tasks, 'share', 1)
+  const summary: CoinTaskSummary = {
+    bbsSignin: bbsTarget <= 0 ? true : undefined,
+    browse: { done: 0, target: browseTarget },
+    like: { done: 0, target: likeTarget },
+    share: { done: 0, target: shareTarget, platform: sharePlatform },
+  }
+
+  if (bbsTarget > 0) {
+    await api.bbsSignin(accessToken, account.uid, account.deviceId)
+    summary.bbsSignin = true
+  }
+
+  const posts = browseTarget > 0 || likeTarget > 0 || shareTarget > 0
+    ? await api.getRecommendPostList(accessToken, account.uid, account.deviceId, 20, 1)
+    : []
+  const browsedPosts: Array<{ postId: string, selfOperation?: { liked?: boolean } }> = []
+
+  for (const post of posts) {
+    if (summary.browse.done >= browseTarget) {
+      break
+    }
+    await delay(randomDelay(700, 1500))
+    const fullPost = await api.getPostFull(accessToken, account.uid, account.deviceId, post.postId)
+    browsedPosts.push(fullPost)
+    summary.browse.done++
+  }
+
+  const likeCandidates = [...browsedPosts, ...posts]
+  const seenPostIds = new Set<string>()
+  for (const post of likeCandidates) {
+    if (summary.like.done >= likeTarget) {
+      break
+    }
+    if (seenPostIds.has(post.postId)) {
+      continue
+    }
+    seenPostIds.add(post.postId)
+    if (post.selfOperation?.liked) {
+      continue
+    }
+    await delay(randomDelay(500, 1000))
+    await api.likePost(accessToken, account.uid, account.deviceId, post.postId)
+    summary.like.done++
+  }
+
+  const sharePost = browsedPosts[0] ?? posts[0]
+  if (shareTarget > 0 && sharePost) {
+    await api.sharePost(accessToken, account.uid, account.deviceId, sharePost.postId, sharePlatform)
+    summary.share.done = 1
+  }
+
+  summary.coinState = await api.getUserCoinTaskState(accessToken)
+  return summary
+}
+
+function remainingTaskCount(tasks: Array<{ code: string, completeTimes: number, limitTimes: number }>, code: string, fallback: number): number {
+  const task = tasks.find(item => item.code === code)
+  if (!task) {
+    return fallback
+  }
+  return Math.max(0, task.limitTimes - task.completeTimes)
 }
 
 function withSession(
@@ -340,7 +479,7 @@ function withSession(
     uid: session.uid ?? account.uid,
     accessToken: session.accessToken,
     refreshToken: session.refreshToken,
-    tokenUpdatedAt: new Date().toISOString(),
+    tokenUpdatedAt: shanghaiDateTime(),
   }
   if (session.laohuToken) {
     updatedAccount.laohuToken = session.laohuToken
@@ -409,6 +548,9 @@ function buildSummary(accounts: AccountRunSummary[]): string {
       const days = gameSignin.days === undefined ? '' : `，本月第 ${gameSignin.days} 天`
       lines.push(`- 游戏 ${gameSignin.gameId} / ${gameSignin.roleName}：签到成功${days}${reward}`)
     }
+    if (account.coinTasks) {
+      lines.push(`- ${formatCoinTasks(account.coinTasks)}`)
+    }
     if (account.error) {
       lines.push(`- 失败原因：${account.error}`)
     }
@@ -419,6 +561,17 @@ function buildSummary(accounts: AccountRunSummary[]): string {
   }
 
   return lines.join('\n').trim()
+}
+
+function formatCoinTasks(coinTasks: CoinTaskSummary): string {
+  const bbsSignin = coinTasks.bbsSignin ? '✓' : '×'
+  const share = coinTasks.share.done >= coinTasks.share.target ? '✓' : `${coinTasks.share.done}/${coinTasks.share.target}`
+  const todayCoin = typeof coinTasks.coinState?.todayCoin === 'number' ? coinTasks.coinState.todayCoin : undefined
+  const limitCoin = typeof coinTasks.coinState?.limitCoin === 'number' ? coinTasks.coinState.limitCoin : undefined
+  const coinText = todayCoin === undefined || limitCoin === undefined
+    ? ''
+    : ` 今日金币${todayCoin}/${limitCoin}`
+  return `金币任务：签到${bbsSignin} 浏览${coinTasks.browse.done}/${coinTasks.browse.target} 点赞${coinTasks.like.done}/${coinTasks.like.target} 分享${share}${coinText}`
 }
 
 function statusLabel(status: AccountRunSummary['status']): string {
@@ -442,4 +595,12 @@ function shanghaiDate(date: Date): string {
     month: '2-digit',
     day: '2-digit',
   }).format(date)
+}
+
+function randomDelay(min: number, max: number): number {
+  return min + Math.floor(Math.random() * (max - min + 1))
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }

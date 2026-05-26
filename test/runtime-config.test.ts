@@ -22,6 +22,25 @@ describe('loadRuntimeConfig', () => {
       statePrefix: 'taygedo',
       accountPasswords: {},
       forceRun: false,
+      coinTasks: true,
+      sharePlatform: 'qq',
+      loopSeconds: undefined,
+    }))
+  })
+
+  it('loads coin task options from env', () => {
+    expect(loadRuntimeConfig({
+      TAYGEDO_COIN_TASKS: 'false',
+      TAYGEDO_SHARE_PLATFORM: 'wb',
+    })).toEqual(expect.objectContaining({
+      coinTasks: false,
+      sharePlatform: 'wb',
+    }))
+  })
+
+  it('loads docker loop seconds from env', () => {
+    expect(loadRuntimeConfig({ TAYGEDO_LOOP_SECONDS: '86400' })).toEqual(expect.objectContaining({
+      loopSeconds: 86400,
     }))
   })
 
@@ -73,6 +92,16 @@ describe('loadRuntimeConfig', () => {
       adminToken: 'admin-token',
       upstashUrl: 'https://redis.example.com',
       upstashToken: 'redis-token',
+    }))
+  })
+
+  it('accepts unstorage store kinds', () => {
+    expect(loadRuntimeConfig({
+      TAYGEDO_ACCOUNT_STORE: 'unstorage',
+      TAYGEDO_STATE_STORE: 'unstorage',
+    })).toEqual(expect.objectContaining({
+      accountStore: 'unstorage',
+      stateStore: 'unstorage',
     }))
   })
 
