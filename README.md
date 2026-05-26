@@ -8,7 +8,7 @@
 
 - 支持多账号签到和账号配置自动写回
 - 支持 GitHub Actions 定时签到和手动触发
-- 支持 Cloudflare Workers 定时任务、HTTP 手动触发和 KV 存储
+- 支持 Cloudflare Workers 定时任务、HTTP 手动触发、Web 登录页和 KV 存储
 - 支持 Docker / Docker Compose 和本地 CLI
 - 支持短信验证码登录、账号密码登录
 - 支持普通 webhook 和 Server 酱通知
@@ -19,12 +19,12 @@
 
 ### Cloudflare Workers 部署
 
-适合希望长期托管在 Serverless 平台的用户。使用 KV 保存账号和运行状态，支持定时任务和 HTTP 手动触发。
+适合希望长期托管在 Serverless 平台的用户。使用 KV 保存账号和运行状态，支持定时任务、HTTP 手动触发和 Web 登录页。
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/zzstar101/taygedo-auto-attendance)
 
 <details>
 <summary>展开查看详细步骤</summary>
-
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/zzstar101/taygedo-auto-attendance)
 
 部署后配置环境变量：
 
@@ -42,6 +42,14 @@ TAYGEDO_SERVERCHAN_SENDKEY=Server 酱 SendKey
 ```
 
 Worker 使用绑定名为 `KV` 的 Cloudflare KV。可以从 `TAYGEDO_ACCOUNTS` 初始化，也可以通过登录接口生成账号配置。
+
+访问 Worker 根路径可以打开 Web 登录页：
+
+```text
+https://你的-worker.workers.dev/
+```
+
+登录页仅 Cloudflare Worker 支持，用 `TAYGEDO_ADMIN_TOKEN` 授权。它只用于短信验证码登录或账号密码登录，并把生成的账号配置写入 KV。
 
 通过密码登录并写入 KV：
 

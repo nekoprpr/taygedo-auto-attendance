@@ -100,6 +100,29 @@ describe('cloudflare worker runtime', () => {
       error: expect.stringContaining('TAYGEDO_CREDENTIAL_KEY'),
     }))
   })
+
+  it('serves a Cloudflare-only login page from the root path', async () => {
+    const env = createEnv(new Map(), { TAYGEDO_ADMIN_TOKEN: 'secret' })
+
+    const response = await worker.fetch(new Request('https://example.com/'), env, {} as ExecutionContext)
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('text/html')
+    const html = await response.text()
+    expect(html).toContain('塔吉多登录')
+    expect(html).toContain('password')
+    expect(html).toContain('send-code')
+  })
+
+  it('does not expose management APIs beyond login on Cloudflare', async () => {
+    const env = createEnv(new Map(), { TAYGEDO_ADMIN_TOKEN: 'secret' })
+
+    const response = await worker.fetch(new Request('https://example.com/api/accounts', {
+      headers: { Authorization: 'Bearer secret' },
+    }), env, {} as ExecutionContext)
+
+    expect(response.status).toBe(404)
+  })
 })
 
 function createEnv(kv: Map<string, string>, overrides: Partial<Record<string, string>> = {}) {
