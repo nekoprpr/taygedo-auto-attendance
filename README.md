@@ -15,7 +15,8 @@
 
 ## 快速开始
 
-### GitHub Actions 部署
+<details>
+<summary>GitHub Actions 部署</summary>
 
 适合第一次使用 GitHub 的用户。Fork 后配置几个 Secret，就可以每天自动签到。
 
@@ -87,7 +88,10 @@ account_name=主账号
 
 之后 workflow 会按计划每天自动运行。
 
-### Cloudflare Workers 部署
+</details>
+
+<details>
+<summary>Cloudflare Workers 部署</summary>
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/zzstar101/taygedo-auto-attendance)
 
@@ -124,7 +128,10 @@ curl -X POST \
 curl -H "Authorization: Bearer <TAYGEDO_ADMIN_TOKEN>" https://你的-worker.workers.dev/run
 ```
 
-### Docker 部署
+</details>
+
+<details>
+<summary>Docker 部署</summary>
 
 Docker Compose 默认使用 GHCR 镜像：
 
@@ -169,7 +176,10 @@ docker compose run --rm taygedo-attendance
 
 镜像 workflow 会推送 `linux/amd64` 和 `linux/arm64`。
 
-### 本地 CLI
+</details>
+
+<details>
+<summary>本地 CLI</summary>
 
 安装依赖：
 
@@ -195,6 +205,8 @@ TAYGEDO_PASSWORDS='{"main":"your-password"}' pnpm local attendance \
   --accounts-file data/accounts.json \
   --state-dir data/state
 ```
+
+</details>
 
 ## 登录方式
 
