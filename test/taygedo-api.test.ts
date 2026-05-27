@@ -57,6 +57,27 @@ describe('TaygedoApi', () => {
     )
   })
 
+  it('reads recommended posts from the posts field returned by the bbs api', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        code: 0,
+        msg: 'ok',
+        data: {
+          hasMore: true,
+          page: 2,
+          posts: [
+            { id: 123, selfOperation: { liked: false } },
+          ],
+        },
+      }), { status: 200 }),
+    )
+    const api = new TaygedoApi({ fetch: fetchMock })
+
+    await expect(api.getRecommendPostList('access-token', 'uid-1', 'device-1')).resolves.toEqual([
+      { postId: '123', selfOperation: { liked: false } },
+    ])
+  })
+
   it('classifies an empty HTTP 402 refresh response as a rejected refresh token', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 402 }))
     const api = new TaygedoApi({ fetch: fetchMock })

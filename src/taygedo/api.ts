@@ -536,19 +536,22 @@ export class TaygedoApi {
       msg?: string
       data?: {
         list?: unknown[]
+        posts?: unknown[]
       } | unknown[]
     }
     const rawList = Array.isArray(data.data)
       ? data.data
       : Array.isArray(data.data?.list)
         ? data.data.list
-        : undefined
+        : Array.isArray(data.data?.posts)
+          ? data.data.posts
+          : undefined
 
     if (!response.ok || data.code !== 0 || !rawList) {
       throw apiResponseError('getRecommendPostList', response, data, '获取推荐帖子列表请求失败')
     }
 
-    return rawList.filter(isRecord).map(toRecommendPost).filter((post): post is RecommendPost => post !== undefined)
+    return rawList.filter(isRecord).map(toRecommendPost).filter((post: RecommendPost | undefined): post is RecommendPost => post !== undefined)
   }
 
   async getPostFull(accessToken: string, uid: string, deviceId: string, postId: string): Promise<RecommendPost> {
