@@ -28,6 +28,7 @@ type AttendanceApi = Pick<TaygedoApi, 'refreshToken' | 'getGameRoles' | 'appSign
   & Partial<Pick<TaygedoApi,
     | 'loginWithPassword'
     | 'userCenterLogin'
+    | 'getGameRecordCards'
     | 'getUserTasks'
     | 'bbsSignin'
     | 'getRecommendPostList'
@@ -584,7 +585,7 @@ function isAuthError(error: unknown): boolean {
 }
 
 async function getAllGameRoles(
-  api: Pick<TaygedoApi, 'getGameRoles'>,
+  api: Pick<TaygedoApi, 'getGameRoles'> & Partial<Pick<TaygedoApi, 'getGameRecordCards'>>,
   accessToken: string,
   uid: string,
   deviceId: string,
@@ -603,6 +604,21 @@ async function getAllGameRoles(
         gameId,
         roleId: role.roleId,
         roleName: role.roleName,
+      })
+    }
+  }
+
+  if (roles.length === 0 && api.getGameRecordCards) {
+    const cards = await api.getGameRecordCards(accessToken, uid, deviceId)
+    for (const card of cards.cards) {
+      if (!card.roleId || seenRoleIds.has(card.roleId)) {
+        continue
+      }
+      seenRoleIds.add(card.roleId)
+      roles.push({
+        gameId: card.gameId,
+        roleId: card.roleId,
+        roleName: card.roleName ?? card.gameName,
       })
     }
   }

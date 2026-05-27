@@ -451,6 +451,44 @@ describe('runAttendance', () => {
     expect(result.updatedAccounts[0]?.roleName).toBe('幻塔A')
   })
 
+  it('falls back to game record cards when game roles endpoint returns no roles', async () => {
+    const api = {
+      refreshToken: vi.fn().mockResolvedValue({ accessToken: 'access-main', refreshToken: 'new-main' }),
+      getGameRoles: vi.fn().mockResolvedValue({ roles: [] }),
+      getGameRecordCards: vi.fn().mockResolvedValue({
+        cards: [{ gameId: '1289', gameName: '异环', roleId: 'role-1289-a', roleName: '异环A' }],
+      }),
+      appSignin: vi.fn().mockResolvedValue({ exp: 10, goldCoin: 20 }),
+      getSigninState: vi.fn().mockResolvedValue({ days: 4 }),
+      getSigninRewards: vi.fn().mockResolvedValue([
+        { name: '第1天', num: 1 },
+        { name: '第2天', num: 1 },
+        { name: '第3天', num: 1 },
+        { name: '扩容核心', num: 2 },
+      ]),
+      gameSignin: vi.fn().mockResolvedValue(undefined),
+    }
+
+    const result = await runAttendance({
+      accountsSecret: JSON.stringify([
+        {
+          id: 'main',
+          name: '主账号',
+          uid: '1',
+          deviceId: 'device-1',
+          refreshToken: 'old-main',
+        },
+      ]),
+      api,
+      maxRetries: 1,
+    })
+
+    expect(api.getGameRecordCards).toHaveBeenCalledWith('access-main', '1', 'device-1')
+    expect(api.gameSignin).toHaveBeenCalledWith('access-main', 'role-1289-a', '1289')
+    expect(result.successCount).toBe(1)
+    expect(result.summary).toContain('游戏 1289 / 异环A：签到成功，本月第 4 天，奖励 扩容核心 x2')
+  })
+
   it('builds a readable Chinese summary with account rewards and game rewards', async () => {
     const api = {
       refreshToken: vi.fn().mockResolvedValue({ accessToken: 'access-main', refreshToken: 'new-main' }),

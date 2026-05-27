@@ -34,6 +34,15 @@ export interface GameRolesResponse {
   roles: Array<{ roleId: string, roleName?: string }>
 }
 
+export interface GameRecordCardResponse {
+  cards: Array<{
+    gameId: string
+    gameName?: string
+    roleId?: string
+    roleName?: string
+  }>
+}
+
 export interface CoinTask {
   code: string
   completeTimes: number
@@ -370,6 +379,32 @@ export class TaygedoApi {
     }
   }
 
+  async getGameRecordCards(accessToken: string, uid: string, deviceId: string): Promise<GameRecordCardResponse> {
+    const request = buildNativeRequest({
+      accessToken,
+      uid,
+      deviceId,
+      method: 'GET',
+      path: '/apihub/api/getGameRecordCard',
+      query: { uid },
+    })
+    const response = await this.fetchImpl(request.url, request.init)
+    const data = await readJson(response, 'getGameRecordCards') as {
+      code?: number
+      msg?: string
+      data?: unknown
+    }
+    if (!response.ok || data.code !== 0 || !Array.isArray(data.data)) {
+      throw apiResponseError('getGameRecordCards', response, data, '获取游戏角色卡请求失败')
+    }
+    return {
+      cards: data.data
+        .filter(isRecord)
+        .map(toGameRecordCard)
+        .filter((card: GameRecordCardResponse['cards'][number] | undefined): card is GameRecordCardResponse['cards'][number] => card !== undefined),
+    }
+  }
+
   async appSignin(accessToken: string, uid: string, deviceId: string): Promise<{ exp: number, goldCoin: number }> {
     const response = await this.fetchImpl(`${TAYGEDO_BASE_URL}/apihub/api/signin`, {
       method: 'POST',
@@ -495,7 +530,7 @@ export class TaygedoApi {
     return data.data.task_list1
       .filter(isRecord)
       .map(task => ({
-        code: String(task.code ?? ''),
+        code: String(task.code ?? task.taskKey ?? ''),
         completeTimes: toNumber(task.completeTimes),
         limitTimes: toNumber(task.limitTimes),
       }))
@@ -723,5 +758,20 @@ function toRecommendPost(value: Record<string, unknown>): RecommendPost | undefi
           },
         }
       : {}),
+  }
+}
+
+function toGameRecordCard(value: Record<string, unknown>): GameRecordCardResponse['cards'][number] | undefined {
+  const gameId = value.gameId
+  if (gameId === undefined) {
+    return undefined
+  }
+  const bindRoleInfo = isRecord(value.bindRoleInfo) ? value.bindRoleInfo : undefined
+  const roleId = bindRoleInfo?.roleId
+  return {
+    gameId: String(gameId),
+    ...(typeof value.gameName === 'string' ? { gameName: value.gameName } : {}),
+    ...(roleId !== undefined ? { roleId: String(roleId) } : {}),
+    ...(typeof bindRoleInfo?.roleName === 'string' ? { roleName: bindRoleInfo.roleName } : {}),
   }
 }

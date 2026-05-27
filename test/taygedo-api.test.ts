@@ -141,6 +141,33 @@ describe('TaygedoApi', () => {
     )
   })
 
+  it('reads bound game roles from record cards', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      code: 0,
+      msg: 'ok',
+      data: [
+        {
+          gameId: 1289,
+          gameName: '异环',
+          bindRoleInfo: { roleId: 456, roleName: '测试角色' },
+        },
+        {
+          gameId: 1256,
+          gameName: '幻塔',
+          bindRoleInfo: null,
+        },
+      ],
+    }), { status: 200 }))
+    const api = new TaygedoApi({ fetch: fetchMock })
+
+    await expect(api.getGameRecordCards('access-token', 'uid-1', 'device-1')).resolves.toEqual({
+      cards: [
+        { gameId: '1289', gameName: '异环', roleId: '456', roleName: '测试角色' },
+        { gameId: '1256', gameName: '幻塔' },
+      ],
+    })
+  })
+
   it('calls native and h5 coin task endpoints with protocol headers', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
@@ -216,6 +243,23 @@ describe('TaygedoApi', () => {
       }),
     )
     expect(fetchMock.mock.calls[4]?.[1]?.body).toBe('platform=qq&postId=post-1')
+  })
+
+  it('reads coin task codes from taskKey when code is absent', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      code: 0,
+      msg: 'ok',
+      data: {
+        task_list1: [
+          { taskKey: 'browse_post_c', completeTimes: 2, limitTimes: 5 },
+        ],
+      },
+    }), { status: 200 }))
+    const api = new TaygedoApi({ fetch: fetchMock })
+
+    await expect(api.getUserTasks('access-token', 'uid-1', 'device-1')).resolves.toEqual([
+      { code: 'browse_post_c', completeTimes: 2, limitTimes: 5 },
+    ])
   })
 
   it('sends captcha and exchanges login credentials through the laohu and usercenter endpoints', async () => {
