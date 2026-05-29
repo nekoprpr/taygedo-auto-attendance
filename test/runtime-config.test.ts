@@ -15,6 +15,7 @@ describe('loadRuntimeConfig', () => {
         'https://sctapi.ftqq.com/SCT123.send',
       ],
       maxRetries: 3,
+      accountConcurrency: 1,
       updatedAccountsPath: 'updated-accounts.json',
       accountStore: 'env',
       stateStore: 'memory',
@@ -69,6 +70,12 @@ describe('loadRuntimeConfig', () => {
     })).toEqual(expect.objectContaining({
       coinTasks: false,
       sharePlatform: 'wb',
+    }))
+  })
+
+  it('loads account concurrency from env', () => {
+    expect(loadRuntimeConfig({ TAYGEDO_ACCOUNT_CONCURRENCY: '2' })).toEqual(expect.objectContaining({
+      accountConcurrency: 2,
     }))
   })
 
@@ -141,5 +148,9 @@ describe('loadRuntimeConfig', () => {
 
   it('rejects invalid retry values', () => {
     expect(() => loadRuntimeConfig({ TAYGEDO_MAX_RETRIES: 'nope' })).toThrow('TAYGEDO_MAX_RETRIES 必须是正整数')
+  })
+
+  it('rejects invalid account concurrency values', () => {
+    expect(() => loadRuntimeConfig({ TAYGEDO_ACCOUNT_CONCURRENCY: '0' })).toThrow('TAYGEDO_ACCOUNT_CONCURRENCY 必须是正整数')
   })
 })

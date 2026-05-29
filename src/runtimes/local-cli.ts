@@ -89,6 +89,7 @@ function createDefaultService(): LocalCliService {
         credentialKey,
         notificationUrls: config.notificationUrls,
         maxRetries: config.maxRetries,
+        accountConcurrency: config.accountConcurrency,
         forceRun: options.forceRun ?? config.forceRun,
         coinTasks: config.coinTasks,
         sharePlatform: config.sharePlatform,

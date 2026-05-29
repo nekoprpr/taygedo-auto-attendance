@@ -15,6 +15,7 @@ export interface RunnerDependencies {
   notificationUrls?: string[]
   notificationFetch?: typeof fetch
   maxRetries?: number
+  accountConcurrency?: number
   secretWriter?: (payload: string) => Promise<void>
   stateStore?: StateStore
   forceRun?: boolean
@@ -108,24 +109,22 @@ export async function runAttendance(deps: RunnerDependencies): Promise<RunAttend
   const forceRun = deps.forceRun ?? false
   const accounts = parseAccountsSecret(deps.accountsSecret)
   const api = deps.api ?? new TaygedoApi()
-  const updatedAccounts: TaygedoAccount[] = []
-  let secretUpdateCount = 0
-  const accountSummaries: AccountRunSummary[] = []
-
-  for (const account of accounts) {
+  const accountResults = await mapWithConcurrency(accounts, deps.accountConcurrency ?? 1, async (account) => {
     const stateKey = attendanceStateKey(account.id, runDate)
     try {
       if (!forceRun && await deps.stateStore?.get(stateKey)) {
-        updatedAccounts.push({ ...account })
-        accountSummaries.push({
-          id: account.id,
-          name: account.name,
-          status: 'skipped',
-          success: false,
-          gameSignins: [],
-          skippedReason: '今天已成功签到',
-        })
-        continue
+        return {
+          updatedAccount: { ...account },
+          shouldUpdateSecret: false,
+          summary: {
+            id: account.id,
+            name: account.name,
+            status: 'skipped',
+            success: false,
+            gameSignins: [],
+            skippedReason: '今天已成功签到',
+          } satisfies AccountRunSummary,
+        }
       }
 
       const accountRun = await withRetries(async () => {
@@ -136,11 +135,6 @@ export async function runAttendance(deps: RunnerDependencies): Promise<RunAttend
         })
       }, deps.maxRetries ?? 3)
 
-      if (accountRun.shouldUpdateSecret) {
-        secretUpdateCount++
-      }
-      updatedAccounts.push(accountRun.updatedAccount)
-      accountSummaries.push(accountRun.summary)
       await deps.stateStore?.set(stateKey, {
         status: 'success',
         accountId: account.id,
@@ -148,19 +142,27 @@ export async function runAttendance(deps: RunnerDependencies): Promise<RunAttend
         date: runDate,
         updatedAt: new Date().toISOString(),
       }, { ttlSeconds: 60 * 60 * 36 })
+      return accountRun
     }
     catch (error) {
-      updatedAccounts.push({ ...account })
-      accountSummaries.push({
-        id: account.id,
-        name: account.name,
-        status: 'failed',
-        success: false,
-        gameSignins: [],
-        error: error instanceof Error ? error.message : String(error),
-      })
+      return {
+        updatedAccount: { ...account },
+        shouldUpdateSecret: false,
+        summary: {
+          id: account.id,
+          name: account.name,
+          status: 'failed',
+          success: false,
+          gameSignins: [],
+          error: error instanceof Error ? error.message : String(error),
+        } satisfies AccountRunSummary,
+      }
     }
-  }
+  })
+
+  const updatedAccounts = accountResults.map(result => result.updatedAccount)
+  const secretUpdateCount = accountResults.filter(result => result.shouldUpdateSecret).length
+  const accountSummaries = accountResults.map(result => result.summary)
 
   if (secretUpdateCount > 0 && deps.secretWriter) {
     await deps.secretWriter(JSON.stringify(updatedAccounts, null, 2))
@@ -322,20 +324,21 @@ async function signWithSession(
   const roleId = firstRole?.roleId ?? account.roleId
 
   const appSignin = await signAppIdempotently(api, accessToken, account)
-  const gameSignins: AccountRunSummary['gameSignins'] = []
-  for (const role of gameRoles) {
-    const signinState = await api.getSigninState(accessToken, role.gameId)
-    const signinRewards = await api.getSigninRewards(accessToken, role.gameId)
+  const gameSignins: AccountRunSummary['gameSignins'] = await Promise.all(gameRoles.map(async (role) => {
+    const [signinState, signinRewards] = await Promise.all([
+      api.getSigninState(accessToken, role.gameId),
+      api.getSigninRewards(accessToken, role.gameId),
+    ])
     const gameSignin = await signGameIdempotently(api, accessToken, role.roleId, role.gameId)
-    gameSignins.push({
+    return {
       gameId: role.gameId,
       roleName: role.roleName ?? role.roleId,
       days: signinState.days,
       reward: signinRewards[signinState.days - 1],
       alreadySigned: gameSignin.alreadySigned,
       success: true,
-    })
-  }
+    }
+  }))
 
   const updatedAccount = {
     ...account,
@@ -593,15 +596,19 @@ async function getAllGameRoles(
   const roles: Array<{ gameId: string, roleId: string, roleName?: string }> = []
   const seenRoleIds = new Set<string>()
 
-  for (const gameId of TAYGEDO_GAME_IDS) {
+  const gameRoleLists = await Promise.all(TAYGEDO_GAME_IDS.map(async (gameId) => {
     const gameRoleList = await api.getGameRoles(accessToken, uid, deviceId, gameId)
+    return { gameId, roles: gameRoleList.roles }
+  }))
+
+  for (const gameRoleList of gameRoleLists) {
     for (const role of gameRoleList.roles) {
       if (!role.roleId || seenRoleIds.has(role.roleId)) {
         continue
       }
       seenRoleIds.add(role.roleId)
       roles.push({
-        gameId,
+        gameId: gameRoleList.gameId,
         roleId: role.roleId,
         roleName: role.roleName,
       })
@@ -624,6 +631,28 @@ async function getAllGameRoles(
   }
 
   return roles
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) {
+    return []
+  }
+  const workerCount = Math.min(items.length, Math.max(1, Math.floor(concurrency)))
+  const results = new Array<R>(items.length)
+  let nextIndex = 0
+
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex++
+      results[index] = await mapper(items[index] as T, index)
+    }
+  }))
+
+  return results
 }
 
 function buildSummary(accounts: AccountRunSummary[]): string {

@@ -306,6 +306,7 @@ async function runCloudflareAttendance(env: CloudflareEnv, forceRun?: boolean) {
     credentialKey: config.credentialKey,
     notificationUrls: config.notificationUrls,
     maxRetries: config.maxRetries,
+    accountConcurrency: config.accountConcurrency,
     forceRun: forceRun ?? config.forceRun,
     coinTasks: config.coinTasks,
     sharePlatform: config.sharePlatform,

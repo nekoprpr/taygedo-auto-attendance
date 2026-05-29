@@ -11,6 +11,7 @@ export interface AttendanceServiceOptions {
   credentialKey?: string
   notificationUrls?: string[]
   maxRetries?: number
+  accountConcurrency?: number
   forceRun?: boolean
   coinTasks?: boolean
   sharePlatform?: string
@@ -28,6 +29,7 @@ export class AttendanceService {
       credentialKey: this.options.credentialKey,
       notificationUrls: this.options.notificationUrls,
       maxRetries: this.options.maxRetries,
+      accountConcurrency: this.options.accountConcurrency,
       stateStore: this.options.stateStore,
       forceRun: this.options.forceRun,
       coinTasks: this.options.coinTasks,

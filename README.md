@@ -167,6 +167,7 @@ index.main_handler
 | `TAYGEDO_NOTIFICATION_URLS` | 普通 webhook，多个用英文逗号分隔 |
 | `TAYGEDO_SERVERCHAN_SENDKEY` | Server 酱 SendKey |
 | `TAYGEDO_MAX_RETRIES` | 单账号最大重试次数，默认 `3` |
+| `TAYGEDO_ACCOUNT_CONCURRENCY` | 多账号并发数，默认 `1`，可设为 `2` 压缩多号耗时 |
 | `TAYGEDO_COIN_TASKS` | 是否执行金币任务，默认 `true` |
 | `TAYGEDO_SHARE_PLATFORM` | 分享平台，默认 `qq` |
 
@@ -246,6 +247,7 @@ Settings -> Secrets and variables -> Actions -> New repository secret
 | `TAYGEDO_NOTIFICATION_URLS` | 普通 webhook，多个用英文逗号分隔 | 可选 |
 | `TAYGEDO_SERVERCHAN_SENDKEY` | Server 酱 SendKey | 可选 |
 | `TAYGEDO_MAX_RETRIES` | 单账号最大重试次数，默认 `3` | 可选 |
+| `TAYGEDO_ACCOUNT_CONCURRENCY` | 多账号并发数，默认 `1` | 可选 |
 
 #### 5. 添加账号
 
@@ -302,6 +304,7 @@ TAYGEDO_CREDENTIAL_KEY_PATH=/data/credential-key
 TAYGEDO_NOTIFICATION_URLS=
 TAYGEDO_SERVERCHAN_SENDKEY=
 TAYGEDO_MAX_RETRIES=3
+TAYGEDO_ACCOUNT_CONCURRENCY=1
 TAYGEDO_FORCE_RUN=false
 TAYGEDO_LOOP_SECONDS=
 ```
@@ -484,6 +487,8 @@ account_name=主账号
 | `TAYGEDO_COIN_TASKS` | 是否执行金币任务，默认 `true`，设为 `false` 可关闭 |
 | `TAYGEDO_SHARE_PLATFORM` | 分享平台，默认 `qq`，可填 `wechat`、`timeline`、`wb` |
 
+如果只追求签到速度，关闭金币任务最快；如果保留金币任务，多账号场景可把 `TAYGEDO_ACCOUNT_CONCURRENCY` 设为 `2` 先试运行。
+
 ### 多账号
 
 重复运行登录流程，换一个 `account_id` 即可：
@@ -519,6 +524,7 @@ TAYGEDO_SERVERCHAN_SENDKEY=SCTxxxxxxxxxxxxxxxxxxxxxxxx
 | `TAYGEDO_STATE_STORE` | 状态存储，支持 `memory`、`file`、`cloudflare-kv`、`upstash`、`unstorage` |
 | `TAYGEDO_ACCOUNTS_KEY` | 账号存储 key，默认 `TAYGEDO_ACCOUNTS` |
 | `TAYGEDO_STATE_PREFIX` | 状态存储前缀，默认 `taygedo` |
+| `TAYGEDO_ACCOUNT_CONCURRENCY` | 多账号并发数，默认 `1` |
 | `TAYGEDO_FORCE_RUN` | 忽略今日去重强制重跑，支持 `true` / `1` |
 | `TAYGEDO_LOOP_SECONDS` | Docker / 本地 CLI 常驻循环间隔秒数，留空表示执行一次 |
 | `TAYGEDO_UPSTASH_REDIS_REST_URL` | Upstash REST URL |

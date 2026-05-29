@@ -133,16 +133,109 @@ describe('runAttendance', () => {
     expect(result.updatedAccounts[0]?.refreshToken).toBe('old-main')
   })
 
+  it('runs accounts concurrently while preserving result order', async () => {
+    let activeAccounts = 0
+    let maxActiveAccounts = 0
+    const api = {
+      refreshToken: vi.fn(async (refreshToken: string) => {
+        activeAccounts++
+        maxActiveAccounts = Math.max(maxActiveAccounts, activeAccounts)
+        await Promise.resolve()
+        activeAccounts--
+        return { accessToken: `access-${refreshToken}`, refreshToken: `new-${refreshToken}` }
+      }),
+      getGameRoles: vi.fn().mockResolvedValue({ roles: [] }),
+      appSignin: vi.fn().mockResolvedValue({ exp: 10, goldCoin: 20 }),
+      getSigninState: vi.fn(),
+      getSigninRewards: vi.fn(),
+      gameSignin: vi.fn(),
+    }
+
+    const result = await runAttendance({
+      accountsSecret: JSON.stringify([
+        { id: 'main', name: '主账号', uid: '1', deviceId: 'device-1', refreshToken: 'main' },
+        { id: 'alt', name: '备用账号', uid: '2', deviceId: 'device-2', refreshToken: 'alt' },
+      ]),
+      api,
+      maxRetries: 1,
+      accountConcurrency: 2,
+    })
+
+    expect(maxActiveAccounts).toBe(2)
+    expect(result.accounts.map(account => account.id)).toEqual(['main', 'alt'])
+    expect(result.updatedAccounts.map(account => account.id)).toEqual(['main', 'alt'])
+  })
+
+  it('loads game roles for configured games concurrently', async () => {
+    let activeRoleLookups = 0
+    let maxActiveRoleLookups = 0
+    const api = {
+      refreshToken: vi.fn().mockResolvedValue({ accessToken: 'access-main', refreshToken: 'new-main' }),
+      getGameRoles: vi.fn(async (accessToken: string, uid: string, deviceId: string, gameId: string) => {
+        activeRoleLookups++
+        maxActiveRoleLookups = Math.max(maxActiveRoleLookups, activeRoleLookups)
+        await new Promise(resolve => setTimeout(resolve, 5))
+        activeRoleLookups--
+        return { roles: [{ roleId: `role-${gameId}`, roleName: `角色${gameId}` }] }
+      }),
+      appSignin: vi.fn().mockResolvedValue({ exp: 10, goldCoin: 20 }),
+      getSigninState: vi.fn().mockResolvedValue({ days: 1 }),
+      getSigninRewards: vi.fn().mockResolvedValue([{ name: '奖励一', num: 1 }]),
+      gameSignin: vi.fn().mockResolvedValue(undefined),
+    }
+
+    const result = await runAttendance({
+      accountsSecret: JSON.stringify([
+        { id: 'main', name: '主账号', uid: '1', deviceId: 'device-1', refreshToken: 'old-main' },
+      ]),
+      api,
+      maxRetries: 1,
+    })
+
+    expect(api.getGameRoles).toHaveBeenCalledTimes(3)
+    expect(maxActiveRoleLookups).toBe(3)
+    expect(result.accounts[0]?.gameSignins).toHaveLength(3)
+  })
+
+  it('runs game signin work for multiple roles concurrently', async () => {
+    let activeStateLookups = 0
+    let maxActiveStateLookups = 0
+    const api = {
+      refreshToken: vi.fn().mockResolvedValue({ accessToken: 'access-main', refreshToken: 'new-main' }),
+      getGameRoles: vi.fn()
+        .mockResolvedValueOnce({ roles: [{ roleId: 'role-1256', roleName: '角色1256' }] })
+        .mockResolvedValueOnce({ roles: [{ roleId: 'role-1257', roleName: '角色1257' }] })
+        .mockResolvedValueOnce({ roles: [{ roleId: 'role-1289', roleName: '角色1289' }] }),
+      appSignin: vi.fn().mockResolvedValue({ exp: 10, goldCoin: 20 }),
+      getSigninState: vi.fn(async () => {
+        activeStateLookups++
+        maxActiveStateLookups = Math.max(maxActiveStateLookups, activeStateLookups)
+        await new Promise(resolve => setTimeout(resolve, 5))
+        activeStateLookups--
+        return { days: 1 }
+      }),
+      getSigninRewards: vi.fn().mockResolvedValue([{ name: '奖励一', num: 1 }]),
+      gameSignin: vi.fn().mockResolvedValue(undefined),
+    }
+
+    const result = await runAttendance({
+      accountsSecret: JSON.stringify([
+        { id: 'main', name: '主账号', uid: '1', deviceId: 'device-1', refreshToken: 'old-main' },
+      ]),
+      api,
+      maxRetries: 1,
+    })
+
+    expect(maxActiveStateLookups).toBe(3)
+    expect(result.accounts[0]?.gameSignins.map(item => item.gameId)).toEqual(['1256', '1257', '1289'])
+  })
+
   it('refreshes and writes tokens only after the stored accessToken is rejected', async () => {
     const secretWriter = vi.fn()
     const api = {
       refreshToken: vi.fn().mockResolvedValue({ accessToken: 'new-access', refreshToken: 'new-refresh', uid: '1' }),
       userCenterLogin: vi.fn(),
-      getGameRoles: vi.fn()
-        .mockRejectedValueOnce(new Error('AUTH_EXPIRED: token expired'))
-        .mockResolvedValueOnce({ roles: [{ roleId: 'role-1256-a', roleName: '幻塔A' }] })
-        .mockResolvedValueOnce({ roles: [] })
-        .mockResolvedValueOnce({ roles: [] }),
+      getGameRoles: mockGameRolesAfterAuthExpired(),
       appSignin: vi.fn().mockResolvedValue({ exp: 10, goldCoin: 20 }),
       getSigninState: vi.fn().mockResolvedValue({ days: 1 }),
       getSigninRewards: vi.fn().mockResolvedValue([{ name: '奖励一', num: 1 }]),
@@ -179,11 +272,7 @@ describe('runAttendance', () => {
     const api = {
       refreshToken: vi.fn().mockRejectedValue(new Error('REFRESH_REJECTED_402: refreshToken 已失效，请重新登录')),
       userCenterLogin: vi.fn().mockResolvedValue({ accessToken: 'rebuilt-access', refreshToken: 'rebuilt-refresh', uid: '1' }),
-      getGameRoles: vi.fn()
-        .mockRejectedValueOnce(new Error('AUTH_EXPIRED: token expired'))
-        .mockResolvedValueOnce({ roles: [{ roleId: 'role-1256-a', roleName: '幻塔A' }] })
-        .mockResolvedValueOnce({ roles: [] })
-        .mockResolvedValueOnce({ roles: [] }),
+      getGameRoles: mockGameRolesAfterAuthExpired(),
       appSignin: vi.fn().mockResolvedValue({ exp: 10, goldCoin: 20 }),
       getSigninState: vi.fn().mockResolvedValue({ days: 1 }),
       getSigninRewards: vi.fn().mockResolvedValue([{ name: '奖励一', num: 1 }]),
@@ -225,11 +314,7 @@ describe('runAttendance', () => {
       loginWithPassword: vi.fn().mockResolvedValue({ token: 'new-laohu-token', userId: 'new-laohu-user' }),
       refreshToken: vi.fn(),
       userCenterLogin: vi.fn().mockResolvedValue({ accessToken: 'password-access', refreshToken: 'password-refresh', uid: '1' }),
-      getGameRoles: vi.fn()
-        .mockRejectedValueOnce(new Error('AUTH_EXPIRED: token expired'))
-        .mockResolvedValueOnce({ roles: [{ roleId: 'role-1256-a', roleName: '幻塔A' }] })
-        .mockResolvedValueOnce({ roles: [] })
-        .mockResolvedValueOnce({ roles: [] }),
+      getGameRoles: mockGameRolesAfterAuthExpired(),
       appSignin: vi.fn().mockResolvedValue({ exp: 10, goldCoin: 20 }),
       getSigninState: vi.fn().mockResolvedValue({ days: 1 }),
       getSigninRewards: vi.fn().mockResolvedValue([{ name: '奖励一', num: 1 }]),
@@ -276,11 +361,7 @@ describe('runAttendance', () => {
       loginWithPassword: vi.fn().mockResolvedValue({ token: 'new-laohu-token', userId: 'new-laohu-user' }),
       refreshToken: vi.fn(),
       userCenterLogin: vi.fn().mockResolvedValue({ accessToken: 'password-access', refreshToken: 'password-refresh', uid: '1' }),
-      getGameRoles: vi.fn()
-        .mockRejectedValueOnce(new Error('AUTH_EXPIRED: token expired'))
-        .mockResolvedValueOnce({ roles: [{ roleId: 'role-1256-a', roleName: '幻塔A' }] })
-        .mockResolvedValueOnce({ roles: [] })
-        .mockResolvedValueOnce({ roles: [] }),
+      getGameRoles: mockGameRolesAfterAuthExpired(),
       appSignin: vi.fn().mockResolvedValue({ exp: 10, goldCoin: 20 }),
       getSigninState: vi.fn().mockResolvedValue({ days: 1 }),
       getSigninRewards: vi.fn().mockResolvedValue([{ name: '奖励一', num: 1 }]),
@@ -314,11 +395,7 @@ describe('runAttendance', () => {
       loginWithPassword: vi.fn().mockRejectedValue(new Error('password login failed')),
       refreshToken: vi.fn().mockResolvedValue({ accessToken: 'new-access', refreshToken: 'new-refresh', uid: '1' }),
       userCenterLogin: vi.fn(),
-      getGameRoles: vi.fn()
-        .mockRejectedValueOnce(new Error('AUTH_EXPIRED: token expired'))
-        .mockResolvedValueOnce({ roles: [{ roleId: 'role-1256-a', roleName: '幻塔A' }] })
-        .mockResolvedValueOnce({ roles: [] })
-        .mockResolvedValueOnce({ roles: [] }),
+      getGameRoles: mockGameRolesAfterAuthExpired(),
       appSignin: vi.fn().mockResolvedValue({ exp: 10, goldCoin: 20 }),
       getSigninState: vi.fn().mockResolvedValue({ days: 1 }),
       getSigninRewards: vi.fn().mockResolvedValue([{ name: '奖励一', num: 1 }]),
@@ -1003,4 +1080,14 @@ describe('runAttendance', () => {
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200 })
+}
+
+function mockGameRolesAfterAuthExpired() {
+  return vi.fn()
+    .mockRejectedValueOnce(new Error('AUTH_EXPIRED: token expired'))
+    .mockImplementation(async (_accessToken: string, _uid: string, _deviceId: string, gameId: string) => ({
+      roles: gameId === '1256'
+        ? [{ roleId: 'role-1256-a', roleName: '幻塔A' }]
+        : [],
+    }))
 }

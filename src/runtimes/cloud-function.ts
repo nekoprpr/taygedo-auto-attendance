@@ -54,6 +54,7 @@ export async function runScheduledCloudFunction(options: CloudFunctionOptions = 
     credentialKey: config.credentialKey,
     notificationUrls: config.notificationUrls,
     maxRetries: config.maxRetries,
+    accountConcurrency: config.accountConcurrency,
     forceRun: config.forceRun,
     coinTasks: config.coinTasks,
     sharePlatform: config.sharePlatform,

@@ -8,6 +8,7 @@ export interface RuntimeConfig {
   credentialKeyPath?: string
   notificationUrls: string[]
   maxRetries: number
+  accountConcurrency: number
   updatedAccountsPath: string
   accountStore: AccountStoreKind
   stateStore: StateStoreKind
@@ -33,6 +34,7 @@ export function loadRuntimeConfig(env: Record<string, string | undefined>): Runt
       ...serverChanUrls(env.TAYGEDO_SERVERCHAN_SENDKEY),
     ],
     maxRetries: parsePositiveInteger(optionalEnv(env, 'TAYGEDO_MAX_RETRIES') ?? '3', 'TAYGEDO_MAX_RETRIES'),
+    accountConcurrency: parsePositiveInteger(optionalEnv(env, 'TAYGEDO_ACCOUNT_CONCURRENCY') ?? '1', 'TAYGEDO_ACCOUNT_CONCURRENCY'),
     updatedAccountsPath: optionalEnv(env, 'TAYGEDO_UPDATED_ACCOUNTS_PATH') ?? 'updated-accounts.json',
     accountStore: parseAccountStore(optionalEnv(env, 'TAYGEDO_ACCOUNT_STORE') ?? 'env'),
     stateStore: parseStateStore(optionalEnv(env, 'TAYGEDO_STATE_STORE') ?? 'memory'),
